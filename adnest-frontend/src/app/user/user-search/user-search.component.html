@@ -1,0 +1,137 @@
+<div class="search-container">
+  <mat-card class="search-card">
+    <mat-card-header>
+      <mat-card-title>User Search</mat-card-title>
+      <mat-card-subtitle>Search users across domains</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="search-form">
+        <mat-form-field class="search-input">
+          <mat-label>Username</mat-label>
+          <input matInput [(ngModel)]="searchQuery" 
+                placeholder="Enter username" 
+                (keyup.enter)="onSearch()">
+          <button *ngIf="searchQuery" 
+                  matSuffix mat-icon-button 
+                  aria-label="Clear" 
+                  (click)="clearSearch()">
+            <mat-icon>close</mat-icon>
+          </button>
+        </mat-form-field>
+
+        <mat-form-field class="domain-select">
+          <mat-label>Domain</mat-label>
+          <mat-select [(ngModel)]="selectedDomain">
+            <mat-option value="lux">Luxottica</mat-option>
+            <mat-option value="essilor">Essilor</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <button mat-raised-button 
+                color="primary" 
+                (click)="onSearch()"
+                [disabled]="loading">
+          <mat-icon>search</mat-icon>
+          Search
+        </button>
+      </div>
+
+      <div *ngIf="errorMessage" class="error-message">
+        <mat-icon>error_outline</mat-icon>
+        {{ errorMessage }}
+      </div>
+
+      <div class="loading-spinner" *ngIf="loading">
+        <mat-spinner diameter="40"></mat-spinner>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card *ngFor="let user of users" class="user-card">
+    <mat-card-header>
+      <div class="header-alerts" *ngIf="user.security">
+        <div class="alert" *ngIf="user.security.isPasswordExpired">
+          ⚠️ Password is expired
+        </div>
+        <div class="alert" *ngIf="isDateExpired(user.dates.accountExpiration)">
+          ⚠️ Account expiration date has passed
+        </div>
+      </div>
+      <mat-card-title>{{ user.displayName }}</mat-card-title>
+      <mat-card-subtitle>{{ user.email }}</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="info-section">
+        <h3>Account Information</h3>
+        <div class="info-item">
+          <strong>Display Name:</strong>
+          <span>{{ user.displayName }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Username:</strong>
+          <span>{{ user.username }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Full Name:</strong>
+          <span>{{ user.fullName }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Email:</strong>
+          <span>{{ user.email }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Department:</strong>
+          <span>{{ user.department }}</span>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <h3>Security Status</h3>
+        <div class="info-item">
+          <strong>Account Locked:</strong>
+          <span [class.status-warning]="user.security.isLocked">
+            {{ user.security.isLocked ? 'Yes' : 'No' }}
+          </span>
+        </div>
+        <div class="info-item">
+          <strong>Account Disabled:</strong>
+          <span [class.status-warning]="user.security.isDisabled">
+            {{ user.security.isDisabled ? 'Yes' : 'No' }}
+          </span>
+        </div>
+        <div class="info-item">
+          <strong>Password Expired:</strong>
+          <span [class.status-warning]="user.security.isPasswordExpired">
+            {{ user.security.isPasswordExpired ? 'Yes' : 'No' }}
+          </span>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <h3>Important Dates</h3>
+        <div class="info-item">
+          <strong>Password Last Set:</strong>
+          <span>{{ user.dates.passwordLastSet }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Password Expiration:</strong>
+          <span [class.status-warning]="isDateExpired(user.dates.passwordExpiration)">
+            {{ user.dates.passwordExpiration }}
+          </span>
+        </div>
+        <div class="info-item">
+          <strong>Account Expiration:</strong>
+          <span [class.status-warning]="isDateExpired(user.dates.accountExpiration)">
+            {{ user.dates.accountExpiration }}
+          </span>
+        </div>
+        <div class="info-item">
+          <strong>Last Modified:</strong>
+          <span>{{ user.dates.lastModified }}</span>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
