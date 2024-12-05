@@ -1,37 +1,26 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { finalize } from 'rxjs/operators';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSelectModule } from '@angular/material/select';
-import { AuthService } from '../../core/services/auth.service';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { AuthService, ADUser } from '../../core/services/auth.service';
+import { finalize } from 'rxjs/operators';
 
-
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  department: string;
-  fullName: string;
-  security: {
-    isLocked: boolean;
-    isDisabled: boolean;
-    isPasswordExpired: boolean;
-  };
-  dates: {
-    passwordLastSet: string;
-    passwordExpiration: string;
-    accountExpiration: string;
-    lastModified: string;
-  };
-}
-
+/**
+ * User Search Component
+ * 
+ * Updates:
+ * - Added support for new security status format (Account Locked, Account Disabled, Password Expired)
+ * - Improved error handling and loading states
+ * - Added clear search functionality
+ * - TODO: Test with actual locked/disabled accounts when available
+ */
 @Component({
   selector: 'app-user-search',
   templateUrl: './user-search.component.html',
@@ -40,69 +29,78 @@ interface ADUser {
   imports: [
     CommonModule,
     FormsModule,
-    MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
+    MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
-    MatSnackBarModule,
-    MatSelectModule
+    MatSnackBarModule
   ]
 })
 export class UserSearchComponent {
-  searchQuery: string = '';
-  selectedDomain: string = 'lux';
-  users: ADUser[] = [];
+  searchQuery = '';
+  selectedDomain = 'lux';
   loading = false;
-  errorMessage: string | null = null;
+  errorMessage = '';
+  users: ADUser[] = [];
 
   constructor(
     private authService: AuthService,
     private snackBar: MatSnackBar
   ) {}
 
-  onSearch(): void {
-    this.errorMessage = null;
+  getSecurityStatus(user: ADUser) {
+    if (!user.security) return [];
+    return Object.entries(user.security).map(([key, value]) => ({
+      key,
+      value: value
+    }));
+  }
 
-    if (!this.searchQuery?.trim()) {
+  isDateExpired(dateStr: string): boolean {
+    if (!dateStr || dateStr === 'N/A') return false;
+    const date = new Date(dateStr);
+    return date < new Date();
+  }
+
+  clearSearch(): void {
+    this.searchQuery = '';
+    this.users = [];
+    this.errorMessage = '';
+  }
+
+  onSearch() {
+    if (!this.searchQuery) {
       this.errorMessage = 'Please enter a search term';
       return;
     }
 
     this.loading = true;
     this.users = [];
+    this.errorMessage = '';
 
     this.authService.searchUsers(this.searchQuery.trim(), this.selectedDomain)
       .pipe(
         finalize(() => this.loading = false)
       )
       .subscribe({
-        next: (users: ADUser[]) => {
+        next: (users) => {
           this.users = users;
           if (users.length === 0) {
             this.errorMessage = 'No users found';
           }
         },
-        error: (error: Error) => {
-          console.error('Search error:', error);
-          this.errorMessage = 'An error occurred while searching. Please try again.';
+        error: (error) => {
+          console.error('Search failed:', error);
+          this.errorMessage = 'Search failed. Please try again.';
           this.snackBar.open('Search failed. Please try again.', 'Close', {
-            duration: 5000
+            duration: 5000,
+            horizontalPosition: 'center',
+            verticalPosition: 'bottom'
           });
         }
       });
-  }
-
-  clearSearch(): void {
-    this.searchQuery = '';
-    this.users = [];
-    this.errorMessage = null;
-  }
-
-  isDateExpired(dateStr: string | null): boolean {
-    if (!dateStr) return false;
-    const date = new Date(dateStr);
-    return date < new Date();
   }
 }

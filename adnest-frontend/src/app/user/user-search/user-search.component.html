@@ -51,7 +51,7 @@
   <mat-card *ngFor="let user of users" class="user-card">
     <mat-card-header>
       <div class="header-alerts" *ngIf="user.security">
-        <div class="alert" *ngIf="user.security.isPasswordExpired">
+        <div class="alert" *ngIf="user.security['Password Expired'] === 'Yes'">
           ⚠️ Password is expired
         </div>
         <div class="alert" *ngIf="isDateExpired(user.dates.accountExpiration)">
@@ -89,22 +89,22 @@
 
       <div class="info-section">
         <h3>Security Status</h3>
-        <div class="info-item">
-          <strong>Account Locked:</strong>
-          <span [class.status-warning]="user.security.isLocked">
-            {{ user.security.isLocked ? 'Yes' : 'No' }}
+        <div class="info-item" *ngFor="let status of getSecurityStatus(user)">
+          <strong>{{status.key}}:</strong>
+          <span [class.status-warning]="status.value === 'Yes'">
+            {{status.value}}
           </span>
         </div>
         <div class="info-item">
           <strong>Account Disabled:</strong>
-          <span [class.status-warning]="user.security.isDisabled">
-            {{ user.security.isDisabled ? 'Yes' : 'No' }}
+          <span [class.status-warning]="user.security['Account Disabled'] === 'Yes'">
+            {{ user.security['Account Disabled'] }}
           </span>
         </div>
         <div class="info-item">
           <strong>Password Expired:</strong>
-          <span [class.status-warning]="user.security.isPasswordExpired">
-            {{ user.security.isPasswordExpired ? 'Yes' : 'No' }}
+          <span [class.status-warning]="user.security['Password Expired'] === 'Yes'">
+            {{ user.security['Password Expired'] }}
           </span>
         </div>
       </div>
