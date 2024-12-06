@@ -9,7 +9,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { AuthService, ADUser } from '../../core/services/auth.service';
+import { AuthService } from '../../core/services/auth.service';
+import { ADUser } from '../../core/services/auth.service';
 import { finalize } from 'rxjs/operators';
 
 /**
@@ -53,10 +54,60 @@ export class UserSearchComponent {
 
   getSecurityStatus(user: ADUser) {
     if (!user.security) return [];
-    return Object.entries(user.security).map(([key, value]) => ({
+    const securityKeys = ['Account Locked', 'Account Disabled', 'Password Expired'] as const;
+    return securityKeys.map(key => ({
       key,
-      value: value
+      value: user.security[key as keyof typeof user.security] || 'No'
     }));
+  }
+
+  // Action button handlers
+  // Action button handlers
+  onSearchADUser(): void {
+    if (!this.searchQuery) {
+      this.errorMessage = 'Please enter a username';
+      return;
+    }
+
+    this.loading = true;
+    this.errorMessage = '';
+    this.users = [];
+
+    this.authService.searchUsers(this.searchQuery, this.selectedDomain)
+      .pipe(finalize(() => this.loading = false))
+      .subscribe({
+        next: (users: ADUser[]) => {
+          this.users = users;
+          if (users.length === 0) {
+            this.errorMessage = 'No users found';
+          }
+        },
+        error: (error: any) => {
+          console.error('Search error:', error);
+          this.errorMessage = error.message || 'Failed to search AD user';
+          this.snackBar.open(this.errorMessage, 'Close', { duration: 5000 });
+        }
+      });
+  }
+  // Action button handlers
+  onSearchAD() {
+    // Will implement in next chunk
+    console.log('Search AD clicked');
+  }
+
+  onUnlockAccount() {
+    // Will implement in next chunk
+    console.log('Unlock Account clicked');
+  }
+
+  onResetPassword() {
+    // Will implement in next chunk
+    console.log('Reset Password clicked');
+  }
+
+  onUpdateExpiration() {
+    // Will implement in next chunk
+    console.log('Update Expiration clicked');
   }
 
   isDateExpired(dateStr: string): boolean {

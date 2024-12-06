@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as ActiveDirectory from 'activedirectory2';
+import { clear } from 'console';
 
 export interface ADUser {
   username: string;
@@ -22,83 +23,139 @@ export interface ADUser {
   };
 }
 
+const userAttributes = [
+  'sAMAccountName',
+  'displayName',
+  'mail',
+  'department',
+  'userAccountControl',
+  'distinguishedName',
+  'cn',
+  'pwdLastSet',
+  'accountExpires',
+  'whenChanged',
+  'lockoutTime',
+  'msDS-UserPasswordExpiryTimeComputed',
+  'thumbnailPhoto'
+];
+
 @Injectable()
 export class UsersService {
   private adClients: { [key: string]: ActiveDirectory };
 
   constructor(private configService: ConfigService) {
-    const luxConfig = {
-      url: this.configService.get<string>('LUX_AD_URL'),
-      baseDN: this.configService.get<string>('LUX_BASE_DN'),
-      username: this.configService.get<string>('LUX_USERNAME'),
-      password: this.configService.get<string>('LUX_PASSWORD'),
+    this.adClients = {};
+  }
+
+  private initializeADClient(domain: string): ActiveDirectory {
+    const config = {
+      url: this.configService.get(`${domain.toUpperCase()}_AD_URL`),
+      baseDN: this.configService.get(`${domain.toUpperCase()}_BASE_DN`),
+      username: this.configService.get(`${domain.toUpperCase()}_USERNAME`),
+      password: this.configService.get(`${domain.toUpperCase()}_PASSWORD`)
     };
 
-    const essilorConfig = {
-      url: this.configService.get<string>('ESSILOR_AD_URL'),
-      baseDN: this.configService.get<string>('ESSILOR_BASE_DN'),
-      username: this.configService.get<string>('ESSILOR_USERNAME'),
-      password: this.configService.get<string>('ESSILOR_PASSWORD'),
-    };
+    if (!config.url || !config.baseDN) {
+      throw new Error(`Missing required ${domain.toUpperCase()} AD configuration`);
+    }
 
-    // Log config values to verify they're loaded
-    console.log('LDAP Config Values:', {
-      lux: {
-        url: luxConfig.url,
-        baseDN: luxConfig.baseDN,
-        username: luxConfig.username,
-      },
-      essilor: {
-        url: essilorConfig.url,
-        baseDN: essilorConfig.baseDN,
-        username: essilorConfig.username,
-      }
+    // Log minimal configuration info
+    console.log(`[${domain.toUpperCase()}] Initializing AD client with:`, {
+      url: config.url,
+      baseDN: config.baseDN,
+      username: config.username ? '(provided)' : '(anonymous)'
     });
 
-    if (!luxConfig.baseDN || !luxConfig.username || !luxConfig.password) {
-      throw new Error('Missing required Lux LDAP configuration');
-    }
+    // If credentials are not provided, try anonymous bind
+    return new ActiveDirectory({
+      url: config.url,
+      baseDN: config.baseDN,
+      username: config.username || '',  // empty string for anonymous bind
+      password: config.password || '',  // empty string for anonymous bind
+      attributes: {
+        user: userAttributes,
+        group: ['*']
+      }
+    });
+  }
 
-    if (!essilorConfig.baseDN || !essilorConfig.username || !essilorConfig.password) {
-      throw new Error('Missing required Essilor LDAP configuration');
-    }
+  async onModuleInit() {
+    try {
+      // Initialize AD clients for both domains
+      this.adClients = {
+        lux: this.initializeADClient('lux'),
+        essilor: this.initializeADClient('essilor')
+      };
 
-    this.adClients = {
-      lux: new ActiveDirectory({
-        url: luxConfig.url,
-        baseDN: luxConfig.baseDN,
-        username: luxConfig.username,
-        password: luxConfig.password,
-      }),
-      essilor: new ActiveDirectory({
-        url: essilorConfig.url,
-        baseDN: essilorConfig.baseDN,
-        username: essilorConfig.username,
-        password: essilorConfig.password,
-      }),
-    };
+      // Test connections
+      await this.testConnection('lux');
+      await this.testConnection('essilor');
+
+      console.log('AD clients initialized and tested successfully');
+    } catch (error) {
+      console.error('Failed to initialize AD clients:', error.message);
+      throw error;
+    }
+  }
+
+  private windowsToJsDate(windowsTime: string | undefined): Date | null {
+    if (!windowsTime || windowsTime === '0' || windowsTime === '9223372036854775807') return null;
+    const windowsTimestamp = BigInt(windowsTime);
+    const windowsToUnixEpochInNs = BigInt('116444736000000000');
+    const unixTimestampInMs = Number((windowsTimestamp - windowsToUnixEpochInNs) / BigInt(10000));
+    return new Date(unixTimestampInMs);
+  }
+
+  private formatDate(date: Date | null): string {
+    if (!date) return 'N/A';
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
 
   async testConnection(domain: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const client = this.adClients[domain.toLowerCase()];
-      if (!client) {
-        throw new Error('Invalid domain');
-      }
+    const client = this.adClients[domain.toLowerCase()];
+    if (!client) {
+      return { success: false, message: 'Invalid domain' };
+    }
 
-      await new Promise((resolve, reject) => {
-        client.findUser('', (err: Error, user: any) => {
+    try {
+      console.log(`[${domain.toUpperCase()}] Testing connection...`);
+      
+      // Try a search instead of authentication to test connection
+      const result = await new Promise<boolean>((resolve, reject) => {
+        const testQuery = '(&(objectClass=user)(cn=*))';
+        const opts = {
+          filter: testQuery,
+          scope: 'sub',
+          sizeLimit: 1
+        };
+
+        client.find(opts, (err: any) => {
           if (err) {
-            reject(err);
+            const errorMessage = err.message || err.lde_message || 'Connection test failed';
+            console.error(`[${domain.toUpperCase()}] Connection test failed:`, {
+              message: errorMessage,
+              code: err.code
+            });
+            reject(new Error(errorMessage));
           } else {
-            resolve(user);
+            console.log(`[${domain.toUpperCase()}] Connection test successful`);
+            resolve(true);
           }
         });
       });
 
       return { success: true, message: 'Connection successful' };
     } catch (error) {
-      return { success: false, message: error.message };
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      const message = `Connection failed: ${errorMessage}`;
+      console.error(`[${domain.toUpperCase()}] ${message}`);
+      return { success: false, message }; // Return error instead of throwing
     }
   }
 
@@ -108,166 +165,79 @@ export class UsersService {
       throw new Error('Invalid domain');
     }
 
-    // Get the config for logging
-    const config = domain.toLowerCase() === 'lux' ? {
-      url: this.configService.get<string>('LUX_AD_URL'),
-      baseDN: this.configService.get<string>('LUX_BASE_DN'),
-      username: this.configService.get<string>('LUX_USERNAME'),
-    } : {
-      url: this.configService.get<string>('ESSILOR_AD_URL'),
-      baseDN: this.configService.get<string>('ESSILOR_BASE_DN'),
-      username: this.configService.get<string>('ESSILOR_USERNAME'),
-    };
+    try {
+      const result = await new Promise<any[]>((resolve, reject) => {
+        const upperQuery = query.toUpperCase();
+        const searchQuery = `(&(objectClass=user)(|(cn=${upperQuery})(sAMAccountName=${upperQuery})(distinguishedName=*${upperQuery}*)))`;
+        
+        const opts = {
+          filter: searchQuery,
+          scope: 'sub',
+          attributes: userAttributes,
+          sizeLimit: 10,
+          timeLimit: 30
+        };
 
-    console.log('LDAP Search Config:', {
-      domain,
-      ...config
-    });
+        console.log(`[${domain.toUpperCase()}] Searching for: ${query}`);
 
-    return new Promise((resolve, reject) => {
-      // Exact match for sAMAccountName
-      const searchQuery = `(&(objectClass=user)(sAMAccountName=${query}))`;
-      console.log('LDAP Search Query:', searchQuery);
+        client.findUsers(opts, (err: any, users: any[]) => {
+          if (err) {
+            const errorMessage = err.message || err.lde_message || 'Search failed';
+            console.error(`[${domain.toUpperCase()}] Search Error:`, {
+              message: errorMessage,
+              code: err.code
+            });
+            reject(new Error(errorMessage));
+            return;
+          }
 
-      const opts = {
-        filter: searchQuery,
-        scope: 'sub',
-        attributes: [
-          'sAMAccountName',
-          'displayName',
-          'mail',
-          'department',
-          'userAccountControl',
-          'distinguishedName',
-          'cn',
-          'pwdLastSet',
-          'accountExpires',
-          'whenChanged',
-          'lockoutTime',
-          'msDS-UserPasswordExpiryTimeComputed'
-        ]
-      };
-
-      client.findUsers(opts, (err: Error, users: any[]) => {
-        if (err) {
-          console.error('LDAP Search Error:', {
-            message: err.message,
-            stack: err.stack,
-            code: (err as any).code,
-            errno: (err as any).errno,
-          });
-          reject(err);
-        } else {
-          console.log('LDAP Search Results:', {
-            found: users?.length || 0,
-            firstUser: users?.[0] ? {
-              sAMAccountName: users[0].sAMAccountName,
-              displayName: users[0].displayName,
-              dn: users[0].distinguishedName
-            } : null
-          });
-
-          resolve(
-            users?.map((user) => {
-              const userAccountControl = parseInt(user.userAccountControl || '0');
-
-              // Convert Windows FileTime to JavaScript Date
-              // Windows FileTime is in 100-nanosecond intervals since January 1, 1601
-              const windowsToJsDate = (windowsTime: string | undefined): Date | null => {
-                if (!windowsTime || windowsTime === '0' || windowsTime === '9223372036854775807') return null;
-                const windowsTimestamp = BigInt(windowsTime);
-                const windowsToUnixEpochInNs = BigInt('116444736000000000'); // Difference between Windows epoch (1601-01-01) and Unix epoch (1970-01-01)
-                const unixTimestampInMs = Number((windowsTimestamp - windowsToUnixEpochInNs) / BigInt(10000));
-                return new Date(unixTimestampInMs);
-              };
-
-              const formatDate = (date: Date | null): string => {
-                if (!date) return 'N/A';
-                return date.toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                });
-              };
-
-              const pwdLastSet = windowsToJsDate(user.pwdLastSet);
-              const accountExpires = windowsToJsDate(user.accountExpires);
-              const passwordExpiration = windowsToJsDate(user['msDS-UserPasswordExpiryTimeComputed']) ||
-                (pwdLastSet ? new Date(pwdLastSet.getTime() + (90 * 24 * 60 * 60 * 1000)) : null);
-              const lastModified = user.whenChanged
-                ? new Date(
-                  user.whenChanged.substring(0, 4),
-                  parseInt(user.whenChanged.substring(4, 6)) - 1,
-                  user.whenChanged.substring(6, 8),
-                  user.whenChanged.substring(8, 10),
-                  user.whenChanged.substring(10, 12),
-                  user.whenChanged.substring(12, 14)
-                )
-                : null;
-
-              return {
-                username: user.sAMAccountName,
-                displayName: user.displayName,
-                email: user.mail,
-                department: user.department || 'N/A',
-                fullName: user.cn || user.displayName,
-                status: userAccountControl === 512 ? 'active' : 'inactive',
-                security: {
-                  "Account Locked": user.lockoutTime && user.lockoutTime !== '0' ? 'Yes' : 'No',
-                  "Account Disabled": (userAccountControl & 2) === 2 ? 'Yes' : 'No',
-                  "Password Expired": ((userAccountControl & 8388608) === 8388608 ||
-                    (passwordExpiration && passwordExpiration < new Date())) ? 'Yes' : 'No'
-                },
-                dates: {
-                  passwordLastSet: formatDate(pwdLastSet),
-                  passwordExpiration: formatDate(passwordExpiration),
-                  accountExpiration: formatDate(accountExpires),
-                  lastModified: formatDate(lastModified)
-                }
-              };
-            }) || []
-          );
-        }
+          console.log(`[${domain.toUpperCase()}] Found ${users?.length || 0} users`);
+          resolve(users || []);
+        });
       });
-    });
+
+      return result.map((user) => {
+        const userAccountControl = parseInt(user.userAccountControl || '0');
+        const pwdLastSet = this.windowsToJsDate(user.pwdLastSet);
+        const accountExpires = this.windowsToJsDate(user.accountExpires);
+        const passwordExpiration = this.windowsToJsDate(user['msDS-UserPasswordExpiryTimeComputed']) ||
+          (pwdLastSet ? new Date(pwdLastSet.getTime() + (90 * 24 * 60 * 60 * 1000)) : null);
+        const lastModified = user.whenChanged ? new Date(user.whenChanged) : null;
+
+        return {
+          username: user.sAMAccountName || '',
+          displayName: user.displayName || '',
+          email: user.mail || '',
+          department: user.department || '',
+          fullName: user.cn || '',
+          status: 'Active',
+          security: {
+            "Account Locked": user.lockoutTime && user.lockoutTime !== '0' ? 'Yes' : 'No',
+            "Account Disabled": (userAccountControl & 2) === 2 ? 'Yes' : 'No',
+            "Password Expired": (userAccountControl & 8388608) === 8388608 ? 'Yes' : 'No'
+          },
+          dates: {
+            passwordLastSet: this.formatDate(pwdLastSet),
+            passwordExpiration: this.formatDate(passwordExpiration),
+            accountExpiration: this.formatDate(accountExpires),
+            lastModified: this.formatDate(lastModified)
+          }
+        };
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error(`[${domain.toUpperCase()}] Search failed:`, {
+        message: errorMessage
+      });
+      throw new Error(`Search failed: ${errorMessage}`);
+    }
   }
 
   async findUser(username: string, domain: string): Promise<ADUser> {
-    const client = this.adClients[domain.toLowerCase()];
-    if (!client) {
-      throw new Error('Invalid domain');
+    const users = await this.searchUsers(username, domain);
+    if (!users || users.length === 0) {
+      throw new Error('User not found');
     }
-
-    return new Promise((resolve, reject) => {
-      client.findUser(username, (err: Error, user: any) => {
-        if (err) {
-          reject(err);
-        } else if (!user) {
-          reject(new Error('User not found'));
-        } else {
-          resolve({
-            username: user.sAMAccountName,
-            displayName: user.displayName,
-            email: user.mail,
-            department: user.department || 'N/A',
-            fullName: user.cn || user.displayName,
-            status: user.userAccountControl === '512' ? 'active' : 'inactive',
-            security: {
-              "Account Locked": 'No',
-              "Account Disabled": 'No',
-              "Password Expired": 'No'
-            },
-            dates: {
-              passwordLastSet: 'N/A',
-              passwordExpiration: 'N/A',
-              accountExpiration: 'N/A',
-              lastModified: 'N/A'
-            }
-          });
-        }
-      });
-    });
+    return users[0];
   }
 }
