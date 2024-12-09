@@ -1,157 +1,115 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { AuthService } from '../../core/services/auth.service';
-import { ADUser } from '../../core/services/auth.service';
+import { Component, OnInit } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { finalize } from 'rxjs/operators';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
-/**
- * User Search Component
- * 
- * Updates:
- * - Added support for new security status format (Account Locked, Account Disabled, Password Expired)
- * - Improved error handling and loading states
- * - Added clear search functionality
- * - TODO: Test with actual locked/disabled accounts when available
- */
+interface ADUser {
+  displayName: string;
+  samAccountName: string;
+  name: string;
+  email: string;
+  department: string;
+  userPrincipalName: string;
+  distinguishedName: string;
+  whenCreated: Date;
+  whenChanged: Date;
+  status: {
+    isLocked: boolean;
+    isDisabled: boolean;
+    passwordExpired: boolean;
+  };
+  passwordLastSet?: Date;
+  passwordExpirationDate?: string;
+  accountExpirationDate?: string;
+}
+
 @Component({
   selector: 'app-user-search',
   templateUrl: './user-search.component.html',
-  styleUrls: ['./user-search.component.scss'],
-  standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    MatCardModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatIconModule,
-    MatProgressSpinnerModule,
-    MatSnackBarModule
-  ]
+  styleUrls: ['./user-search.component.scss']
 })
-export class UserSearchComponent {
+export class UserSearchComponent implements OnInit {
   searchQuery = '';
-  selectedDomain = 'lux';
+  adSearchQuery = '';
+  isAdvancedSearch = false;
   loading = false;
-  errorMessage = '';
+  errorMessage: string | null = null;
   users: ADUser[] = [];
 
   constructor(
-    private authService: AuthService,
+    private http: HttpClient,
     private snackBar: MatSnackBar
   ) {}
 
-  getSecurityStatus(user: ADUser) {
-    if (!user.security) return [];
-    const securityKeys = ['Account Locked', 'Account Disabled', 'Password Expired'] as const;
-    return securityKeys.map(key => ({
-      key,
-      value: user.security[key as keyof typeof user.security] || 'No'
-    }));
-  }
-
-  // Action button handlers
-  // Action button handlers
-  onSearchADUser(): void {
-    if (!this.searchQuery) {
-      this.errorMessage = 'Please enter a username';
-      return;
-    }
-
-    this.loading = true;
-    this.errorMessage = '';
-    this.users = [];
-
-    this.authService.searchUsers(this.searchQuery, this.selectedDomain)
-      .pipe(finalize(() => this.loading = false))
-      .subscribe({
-        next: (users: ADUser[]) => {
-          this.users = users;
-          if (users.length === 0) {
-            this.errorMessage = 'No users found';
-          }
-        },
-        error: (error: any) => {
-          console.error('Search error:', error);
-          this.errorMessage = error.message || 'Failed to search AD user';
-          this.snackBar.open(this.errorMessage, 'Close', { duration: 5000 });
-        }
-      });
-  }
-  // Action button handlers
-  onSearchAD() {
-    // Will implement in next chunk
-    console.log('Search AD clicked');
-  }
-
-  onUnlockAccount() {
-    // Will implement in next chunk
-    console.log('Unlock Account clicked');
-  }
-
-  onResetPassword() {
-    // Will implement in next chunk
-    console.log('Reset Password clicked');
-  }
-
-  onUpdateExpiration() {
-    // Will implement in next chunk
-    console.log('Update Expiration clicked');
-  }
-
-  isDateExpired(dateStr: string): boolean {
-    if (!dateStr || dateStr === 'N/A') return false;
-    const date = new Date(dateStr);
-    return date < new Date();
+  ngOnInit(): void {
+    console.log('UserSearchComponent initialized');
+    // Optionally, perform initial setup or logging
   }
 
   clearSearch(): void {
     this.searchQuery = '';
+    this.adSearchQuery = '';
     this.users = [];
-    this.errorMessage = '';
+    this.errorMessage = null;
   }
 
-  onSearch() {
-    if (!this.searchQuery) {
+  onSearch(): void {
+    console.log('Starting search...');
+    console.log('Is Advanced Search:', this.isAdvancedSearch);
+    this.errorMessage = null;
+    const query = this.isAdvancedSearch ? this.adSearchQuery : this.searchQuery;
+
+    if (!query?.trim()) {
       this.errorMessage = 'Please enter a search term';
+      console.warn('Search aborted: No query provided');
       return;
     }
 
+    console.log(`Searching with query: ${query} (Advanced: ${this.isAdvancedSearch})`);
     this.loading = true;
     this.users = [];
-    this.errorMessage = '';
 
-    this.authService.searchUsers(this.searchQuery.trim(), this.selectedDomain)
-      .pipe(
-        finalize(() => this.loading = false)
-      )
-      .subscribe({
-        next: (users) => {
-          this.users = users;
-          if (users.length === 0) {
-            this.errorMessage = 'No users found';
-          }
-        },
-        error: (error) => {
-          console.error('Search failed:', error);
-          this.errorMessage = 'Search failed. Please try again.';
-          this.snackBar.open('Search failed. Please try again.', 'Close', {
-            duration: 5000,
-            horizontalPosition: 'center',
-            verticalPosition: 'bottom'
-          });
+    const endpoint = this.isAdvancedSearch ? '/api/users/advanced-search' : '/api/users/search';
+    const params: any = this.isAdvancedSearch 
+      ? { name: query.trim(), domain: 'lux' } 
+      : { query: query.trim(), domain: 'lux' };
+    
+    console.log('Endpoint:', endpoint);
+    console.log('Search Params:', params);
+
+    this.http.get<ADUser[]>(endpoint, { params })
+    .pipe(
+      finalize(() => {
+        console.log('Search completed');
+        this.loading = false;
+      })
+    )
+    .subscribe({
+      next: (users) => {
+        console.log(`Found ${users.length} users:`, users);
+        this.users = users;
+        if (users.length === 0) {
+          this.errorMessage = 'No users found';
+          console.warn('No users found for query:', query);
         }
-      });
+      },
+      error: (error) => {
+        console.error('Search error:', error);
+        // Log more detailed error information
+        console.error('Error details:', {
+          status: error.status,
+          message: error.message,
+          url: error.url,
+          error: error.error
+        });
+        
+        this.errorMessage = error.error?.message || error.message || 'Failed to search users';
+        this.snackBar.open(this.errorMessage || 'An unknown error occurred', 'Close', { 
+          duration: 5000,
+          horizontalPosition: 'center',
+          verticalPosition: 'top'
+        });
+      }
+    });
   }
 }

@@ -10,7 +10,7 @@ import { UsersModule } from './users/users.module';
       isGlobal: true,
       envFilePath: '.env'
     }),
-    UsersModule,
+    UsersModule
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,159 +1,130 @@
 <div class="search-container">
-  <mat-card class="search-card">
+  <mat-card>
     <mat-card-header>
       <mat-card-title>User Search</mat-card-title>
-      <mat-card-subtitle>Search users across domains</mat-card-subtitle>
+      <mat-card-subtitle>Search for users across domains</mat-card-subtitle>
     </mat-card-header>
 
     <mat-card-content>
-      <div class="search-form">
-        <div class="top-row">
-          <mat-form-field class="domain-select">
-            <mat-label>Domain</mat-label>
-            <mat-select [(ngModel)]="selectedDomain">
-              <mat-option value="lux">Luxottica</mat-option>
-              <mat-option value="essilor">Essilor</mat-option>
-            </mat-select>
-          </mat-form-field>
+      <mat-button-toggle-group [(ngModel)]="isAdvancedSearch" class="search-type-toggle">
+        <mat-button-toggle [value]="false">Search</mat-button-toggle>
+        <mat-button-toggle [value]="true">AD Search</mat-button-toggle>
+      </mat-button-toggle-group>
 
-          <button mat-raised-button 
-                  color="primary" 
-                  (click)="onSearch()"
-                  [disabled]="loading">
-            <mat-icon>search</mat-icon>
-            Search
-          </button>
-
-          <button mat-raised-button 
-                  color="accent"
-                  (click)="onSearchADUser()"
-                  [disabled]="loading">
-            <mat-icon>person_search</mat-icon>
-            Search AD User
-          </button>
-        </div>
-
-        <mat-form-field class="search-input">
-          <mat-label>Username</mat-label>
-          <input matInput [(ngModel)]="searchQuery" 
-                 placeholder="Enter username" 
+      <ng-container [ngSwitch]="isAdvancedSearch">
+        <!-- Basic Search -->
+        <mat-form-field *ngSwitchCase="false" appearance="outline" class="full-width">
+          <mat-label>Search</mat-label>
+          <input matInput 
+                 [(ngModel)]="searchQuery" 
+                 placeholder="Enter search term"
                  (keyup.enter)="onSearch()">
+          <mat-icon matPrefix>search</mat-icon>
           <button *ngIf="searchQuery" 
-                  matSuffix mat-icon-button 
-                  aria-label="Clear" 
-                  (click)="clearSearch()">
+                  matSuffix 
+                  mat-icon-button 
+                  (click)="searchQuery=''">
             <mat-icon>close</mat-icon>
           </button>
         </mat-form-field>
+
+        <!-- AD Search -->
+        <mat-form-field *ngSwitchCase="true" appearance="outline" class="full-width">
+          <mat-label>AD Search</mat-label>
+          <input matInput 
+                 [(ngModel)]="adSearchQuery" 
+                 placeholder="Enter name to search in AD"
+                 (keyup.enter)="onSearch()">
+          <mat-icon matPrefix>manage_search</mat-icon>
+          <button *ngIf="adSearchQuery" 
+                  matSuffix 
+                  mat-icon-button 
+                  (click)="adSearchQuery=''">
+            <mat-icon>close</mat-icon>
+          </button>
+        </mat-form-field>
+      </ng-container>
+
+      <div class="button-row">
+        <button mat-raised-button 
+                color="primary" 
+                (click)="onSearch()"
+                [disabled]="loading">
+          <mat-icon>search</mat-icon>
+          Search
+        </button>
+        <button mat-stroked-button 
+                (click)="clearSearch()"
+                [disabled]="loading">
+          <mat-icon>clear</mat-icon>
+          Clear
+        </button>
       </div>
 
+      <mat-progress-spinner *ngIf="loading"
+                           mode="indeterminate" 
+                           diameter="30"
+                           class="loading-spinner">
+      </mat-progress-spinner>
+
       <div *ngIf="errorMessage" class="error-message">
-        <mat-icon>error_outline</mat-icon>
+        <mat-icon>error</mat-icon>
         {{ errorMessage }}
       </div>
 
-      <div class="loading-spinner" *ngIf="loading">
-        <mat-spinner diameter="40"></mat-spinner>
-      </div>
-    </mat-card-content>
-  </mat-card>
+      <div *ngIf="users.length > 0" class="search-results">
+        <mat-card *ngFor="let user of users" class="user-card">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>account_circle</mat-icon>
+            <mat-card-title>{{ user.displayName }}</mat-card-title>
+            <mat-card-subtitle>{{ user.samAccountName }}</mat-card-subtitle>
+          </mat-card-header>
+          
+          <mat-card-content>
+            <div class="user-details">
+              <div class="detail-section">
+                <h3>Basic Information</h3>
+                <p><strong>Name:</strong> {{ user.name }}</p>
+                <p><strong>Email:</strong> {{ user.email }}</p>
+                <p><strong>Department:</strong> {{ user.department }}</p>
+                <p><strong>UPN:</strong> {{ user.userPrincipalName }}</p>
+              </div>
 
-  <mat-card *ngFor="let user of users" class="user-card">
-    <mat-card-header>
-      <div class="header-alerts" *ngIf="user.security">
-        <div class="alert-container">
-          <div class="alert" *ngIf="user.security['Password Expired'] === 'Yes'">
-            <mat-icon class="warning-icon">warning</mat-icon>
-            <span class="alert-text">Password is expired</span>
-          </div>
-          <div class="alert" *ngIf="isDateExpired(user.dates.accountExpiration)">
-            <mat-icon class="warning-icon">warning</mat-icon>
-            <span class="alert-text">Account expiration date has passed</span>
-          </div>
-        </div>
-      </div>
-      <mat-card-title>{{ user.displayName }}</mat-card-title>
-      <mat-card-subtitle>{{ user.email }}</mat-card-subtitle>
-    </mat-card-header>
+              <div class="detail-section">
+                <h3>Account Status</h3>
+                <p>
+                  <strong>Status:</strong> 
+                  <span [ngClass]="'status-' + 
+                    (user.status.isLocked ? 'locked' : 
+                     user.status.isDisabled ? 'disabled' : 
+                     user.status.passwordExpired ? 'expired' : 'active')">
+                    <mat-icon>{{ 
+                      user.status.isLocked ? 'lock' : 
+                      user.status.isDisabled ? 'block' : 
+                      user.status.passwordExpired ? 'warning' : 
+                      'check_circle' 
+                    }}</mat-icon>
+                    {{ user.status.isLocked ? 'Locked' : 
+                       user.status.isDisabled ? 'Disabled' : 
+                       user.status.passwordExpired ? 'Password Expired' : 
+                       'Active' }}
+                  </span>
+                </p>
+                <p><strong>Password Last Set:</strong> {{ user.passwordLastSet | date:'medium' }}</p>
+                <p><strong>Password Expiration:</strong> {{ user.passwordExpirationDate || 'Never' }}</p>
+                <p><strong>Account Expiration:</strong> {{ user.accountExpirationDate || 'Never' }}</p>
+              </div>
 
-    <mat-card-content>
-      <div class="info-section">
-        <h3>Account Information</h3>
-        <div class="info-item">
-          <strong>Display Name:</strong>
-          <span>{{ user.displayName }}</span>
-        </div>
-        <div class="info-item">
-          <strong>Username:</strong>
-          <span>{{ user.username }}</span>
-        </div>
-        <div class="info-item">
-          <strong>Full Name:</strong>
-          <span>{{ user.fullName }}</span>
-        </div>
-        <div class="info-item">
-          <strong>Email:</strong>
-          <span>{{ user.email }}</span>
-        </div>
-        <div class="info-item">
-          <strong>Department:</strong>
-          <span>{{ user.department }}</span>
-        </div>
+              <div class="detail-section">
+                <h3>Additional Details</h3>
+                <p><strong>Distinguished Name:</strong> {{ user.distinguishedName }}</p>
+                <p><strong>Created:</strong> {{ user.whenCreated | date:'medium' }}</p>
+                <p><strong>Last Modified:</strong> {{ user.whenChanged | date:'medium' }}</p>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
       </div>
-
-      <div class="info-section">
-        <h3>Security Status</h3>
-        <div class="info-item" *ngFor="let status of getSecurityStatus(user)">
-          <strong>{{status.key}}:</strong>
-          <span [class.status-warning]="status.value === 'Yes'">
-            {{status.value}}
-          </span>
-        </div>
-      </div>
-
-      <div class="info-section">
-        <h3>Important Dates</h3>
-        <div class="info-item">
-          <strong>Password Last Set:</strong>
-          <span>{{ user.dates.passwordLastSet }}</span>
-        </div>
-        <div class="info-item">
-          <strong>Password Expiration:</strong>
-          <span [class.status-warning]="isDateExpired(user.dates.passwordExpiration)">
-            {{ user.dates.passwordExpiration }}
-          </span>
-        </div>
-        <div class="info-item">
-          <strong>Account Expiration:</strong>
-          <span [class.status-warning]="isDateExpired(user.dates.accountExpiration)">
-            {{ user.dates.accountExpiration }}
-          </span>
-        </div>
-        <div class="info-item">
-          <strong>Last Modified:</strong>
-          <span>{{ user.dates.lastModified }}</span>
-        </div>
-      </div>
-
-      <!-- Add Action Buttons -->
-      <mat-card-actions align="end">
-        <button mat-button color="primary" (click)="onSearchAD()">
-          <mat-icon>search</mat-icon>
-          Search-ADUser
-        </button>
-        <button mat-button color="warn" (click)="onUnlockAccount()" [disabled]="!user.security['Account Locked']">
-          <mat-icon>lock_open</mat-icon>
-          Unlock Account
-        </button>
-        <button mat-button color="accent" (click)="onResetPassword()">
-          <mat-icon>password</mat-icon>
-          Reset Password
-        </button>
-        <button mat-button color="primary" (click)="onUpdateExpiration()">
-          <mat-icon>event</mat-icon>
-          Update Expiration
-        </button>
-      </mat-card-actions>
     </mat-card-content>
   </mat-card>
 </div>
